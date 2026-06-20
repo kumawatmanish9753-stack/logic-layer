@@ -2,13 +2,97 @@
 
 Thanks for your interest in contributing to **Logic Layer** — a universal AI masking layer that catches hallucinations before they reach the user.
 
-This guide explains how to set up the project locally, how we organize branches and commits, the PR process, and the standards we hold contributions to.
+This guide is written so that **even if you've never used GitHub before, you can make your first contribution today.** It covers the basic Git/GitHub workflow step by step, plus the specific rules this project follows.
+
+If you're an experienced contributor, feel free to skip Section 1 and jump straight to [Section 2](#2-getting-started).
 
 ---
 
-## 1. Code of Conduct
+## 1. New to GitHub? Start Here
 
-By participating in this project you agree to keep discussions respectful, constructive, and on-topic. We're a small team building something hard — assume good intent, give feedback on the work not the person, and help each other ship.
+If you already know what "fork," "branch," and "pull request" mean, skip ahead. Otherwise, here's the 5-minute version.
+
+### 1.1 The key concepts
+
+| Term | What it means |
+|---|---|
+| **Repository (repo)** | The project's folder of code, hosted on GitHub. |
+| **Fork** | Your own personal copy of someone else's repo, under your GitHub account. You make changes here first. |
+| **Clone** | Downloading a copy of a repo (your fork) onto your own computer so you can edit files. |
+| **Branch** | A separate "lane" of work, off to the side of the main code, so your changes don't affect anything until they're reviewed and merged. |
+| **Commit** | A saved snapshot of your changes, with a message describing what you did. |
+| **Push** | Uploading your local commits back up to GitHub. |
+| **Pull Request (PR)** | A request asking the project maintainers to review and merge your branch into the real project. |
+
+### 1.2 The basic flow, visually
+
+```
+Fork the repo  →  Clone it locally  →  Create a branch  →  Make changes
+      →  Commit changes  →  Push branch to GitHub  →  Open a Pull Request
+      →  Maintainers review  →  Merged! 🎉
+```
+
+### 1.3 Step-by-step for your first contribution
+
+**Step 1 — Fork the repo.**
+On the GitHub page for this project, click the **Fork** button (top-right). This creates a copy under your own GitHub username.
+
+**Step 2 — Clone your fork to your computer.**
+```bash
+git clone https://github.com/<your-username>/logic-layer.git
+cd logic-layer
+```
+
+**Step 3 — Add the original project as a remote (so you can stay up to date).**
+```bash
+git remote add upstream https://github.com/<org>/logic-layer.git
+```
+
+**Step 4 — Create a new branch.**
+Never make changes directly on `main` or `develop`. Always create a branch first:
+```bash
+git checkout -b feat/your-feature-name
+```
+(See [Section 3](#3-branch-naming-convention) below for naming rules.)
+
+**Step 5 — Make your changes.**
+Edit files in your code editor as needed.
+
+**Step 6 — Check what changed.**
+```bash
+git status
+git diff
+```
+
+**Step 7 — Stage and commit your changes.**
+```bash
+git add .
+git commit -m "feat(verification): add contradiction-detector verdict mapping"
+```
+(See [Section 4](#4-commit-messages) for the message format we use.)
+
+**Step 8 — Push your branch to your fork on GitHub.**
+```bash
+git push origin feat/your-feature-name
+```
+
+**Step 9 — Open a Pull Request.**
+Go to your fork on GitHub. You'll see a banner suggesting you open a PR for the branch you just pushed — click it, fill out the template, and submit.
+
+**Step 10 — Respond to review feedback.**
+A maintainer will review your PR (see [Section 5.1](#51-review-expectations)). If they ask for changes, just make more commits on the same branch and push again — the PR updates automatically.
+
+### 1.4 Useful things to know as a beginner
+
+- **You can't break anything by branching.** `main` and `develop` stay untouched until your PR is reviewed and merged.
+- **It's fine to push multiple times.** Each `git push` just updates your existing PR.
+- **Pulling in updates from the original repo**, if your fork falls behind:
+  ```bash
+  git fetch upstream
+  git checkout develop
+  git merge upstream/develop
+  ```
+- **Stuck or made a mess?** It's okay — open an issue or ask in your PR. Everyone's first PR is a little messy.
 
 ---
 
@@ -46,6 +130,15 @@ cd ui-client
 npm install
 cd ..
 ```
+
+#### What is `.env.example` for?
+
+`.env.example` is a **template** that lists every environment variable the project needs to run — things like database connection strings, API keys, ports, and feature flags — but with placeholder or blank values instead of real secrets.
+
+- It exists so new contributors know exactly which variables they need to set, without anyone having to share real credentials in the repo.
+- The actual file you'll use is `.env`, which you create yourself by copying the template (`cp .env.example .env`) and filling in real values for your local setup.
+- `.env` is listed in `.gitignore` and should **never** be committed — it can contain real secrets (API keys, passwords, tokens). `.env.example` is safe to commit because it contains no real values.
+- If you add a new environment variable while developing, add a matching placeholder entry to `.env.example` in the same PR, so other contributors know it exists.
 
 ### 2.4 Running the stack locally
 
@@ -183,8 +276,14 @@ Releases follow [Semantic Versioning](https://semver.org/). Tag format: `vMAJOR.
 
 ---
 
-## 10. Questions?
+## 10. Code of Conduct
 
-If something in this guide is unclear, open a PR against this file — documentation is part of the project.
+By participating in this project you agree to keep discussions respectful, constructive, and on-topic. We're a small team building something hard — assume good intent, give feedback on the work not the person, and help each other ship.
+
+---
+
+## 11. Questions?
+
+If something in this guide is unclear, open a PR against this file — documentation is part of the project. If you're brand new and just stuck on a Git command, that's a great thing to ask about in your PR or in an issue — no question is too basic.
 
 Thanks for contributing. 🎯
