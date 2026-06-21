@@ -1,130 +1,158 @@
-# Logic Layer — Project Plan
+# Logic Layer — Build Plan (Ollama + Qwen3.5 4B)
 
-Team: **ReBinders**
+**Pipeline:** user prompt → target AI agent (via API) → raw text response → **Qwen3.5 4B, served locally through Ollama** → checks the local DB first, trusted sources only if nothing found locally → reply to user with a verdict (`verified` / `unverified` / `wrong`).
 
-This document lays out *how* we are going to build Logic Layer — phases, ownership, timeline, decisions we've already locked in from our discussions, and the risks we still need to think through. `README.md` covers *what* we're building; this covers *how* we get there.
+Every checklist item below ends with the file it belongs in, so there's no ambiguity about where code goes.
 
 ---
 
-## 1. Vision
+## 0. Project structure (reference this for every step below)
 
-Build a model-agnostic masking layer that intercepts AI agent responses, verifies them claim-by-claim against curated facts and trusted sources, and only releases a response to the user once it's been checked — clearly labeling anything that can't be confirmed instead of pretending it's fine.
+```
+logic-layer/
+├── README.md
+├── plan.md
+├── pyproject.toml
+├── .env.example
+├── .gitignore
+├── .github/workflows/ci.yml
+├── logiclayer/
+│   ├── __init__.py
+│   ├── cli/
+│   │   ├── main.py                  # Typer app, entry point for the `logiclayer` command
+│   │   └── commands/
+│   │       ├── query.py             # `logiclayer query`
+│   │       ├── verify.py            # `logiclayer verify`
+│   │       ├── kb.py                # `logiclayer kb add-fact` / `kb refresh`
+│   │       └── scheduler.py         # `logiclayer scheduler start`
+│   ├── connectors/
+│   │   ├── base.py                  # AgentConnector interface
+│   │   └── openai_connector.py      # (or whichever chatbot/agent you're verifying)
+│   ├── verifier/
+│   │   ├── ollama_client.py         # thin HTTP wrapper around Ollama's /api/chat
+│   │   ├── tools.py                 # actual Python functions behind each tool
+│   │   ├── system_prompt.py         # the system prompt template fed to Qwen
+│   │   └── orchestrator.py          # the agentic loop — calls ollama_client, runs tools, enforces gating
+│   ├── knowledge_base/
+│   │   ├── schema.py                # Pydantic models: Fact, Source
+│   │   ├── loader.py                # loads JSON facts/sources into SQLite
+│   │   ├── local_check.py           # check_local_db logic (exact + embeddings match)
+│   │   └── embeddings.py            # builds/queries the ChromaDB or FAISS index
+│   ├── trusted_sources/
+│   │   ├── search.py                # search_trusted_sources logic, whitelist-only
+│   │   └── scraper.py               # requests + BeautifulSoup
+│   ├── scheduler/
+│   │   └── jobs.py                  # APScheduler job: refresh_knowledge_base()
+│   ├── reporting/
+│   │   └── formatter.py             # turns verdicts into the final user-facing reply
+│   ├── logging/
+│   │   └── logger.py                # SQLite/JSON logging of queries + tool calls
+│   └── config/
+│       ├── settings.py              # loads .env, model name, Ollama host/port
+│       └── whitelisted_domains.json
+├── local-knowledge-base/
+│   ├── facts/                       # one JSON file per fact
+│   ├── sources/                     # one JSON file per source
+│   └── embeddings/                  # gitignored, regenerable
+├── tests/
+│   ├── test_local_check.py
+│   ├── test_trusted_sources.py
+│   ├── test_orchestrator.py
+│   └── test_cli.py
+└── docs/
+```
 
-## 2. Decisions (from team discussion)
+---
 
-These came out of our group discussion and should be treated as settled unless something forces a revisit:
+## 1. First, build the local database
 
-1. **Facts never pass through the AI agent.** The agent never sees our facts file as context — it's only used to check the agent's output after the fact. This is our core differentiator and shouldn't be compromised for convenience.
-2. **Claims are atomized before verification.** No whole-response verdicts. Every response gets broken into individual factual claims first.
-3. **Three-layer check order:** Local Check → Trusted Source Check → Contradiction Detector. Cheapest/fastest layer first, escalate only when needed.
-4. **Four verdicts, not two:** Verified, Wrong, Unverifiable, Hallucinated. "Unverifiable" is a first-class output, not a failure state we hide.
-5. **Hallucinated verdicts show both sides.** Incorrect statement and correct statement are displayed together, not just flagged.
-6. **Local database is structured like a personal wiki** ("second brain" style) — facts as linked nodes, each with a source attached next to it, not a flat table.
-7. **Local database is a living thing**, not a one-time build — it needs a recurring update/refresh cycle.
-8. **We do not claim "zero hallucinations."** We only claim to catch what has evidence somewhere. This is a positioning decision as much as a technical one — it's part of how we'll talk about the product.
+- [ ] Define the `Fact` and `Source` Pydantic models (`logiclayer/knowledge_base/schema.py`)
+- [ ] Create the empty folders `local-knowledge-base/facts/` and `local-knowledge-base/sources/` and seed facts 
+- [ ] Write the loader that reads all fact/source JSON files into SQLite (`logiclayer/knowledge_base/loader.py`)
+- [ ] Write the orphan-fact checker — every fact must cite a `source_id` that exists (`logiclayer/knowledge_base/loader.py`, run as a standalone check)
+- [ ] Build the embeddings index over fact text using FAISS (py library), stored under `local-knowledge-base/embeddings/` (`logiclayer/knowledge_base/embeddings.py`)
+- [ ] Write `check_local_db(claim)` — exact match first, then embeddings fallback (`logiclayer/knowledge_base/local_check.py`)
 
-## 3. Team Roles
+## 2. Then build the trusted-source search tool — locked to the whitelist
 
-> To be confirmed with the full team — drafted here as a starting proposal based on who raised which ideas in our discussion.
+- [ ] Create `logiclayer/config/whitelisted_domains.json` with the approved domains
+- [ ] Write the scraper (requests + BeautifulSoup) (`logiclayer/trusted_sources/scraper.py`)
+- [ ] Write `search_trusted_sources(query)` — no domain parameter in the signature, searches only the whitelist + `.gov` fallback, filters out anything not on the list before returning (`logiclayer/trusted_sources/search.py`)
+- [ ] Normalize results into the same JSON evidence shape as `check_local_db`'s output 
+- [ ] Cache hits back into `local-knowledge-base/facts/` as new fact entries (same file, calls into `logiclayer/knowledge_base/loader.py`)(automaticaley creating the database)
 
-| Role | Responsibility |
-|---|---|
-| **Aaditya Soni — Team Lead** | Overall architecture management, coordination between members, helps any and all |
-| **Middleware & Pipeline** | Builds the routing layer, agent connectors, feedback loop to the AI agent |
-| **Verification Systems** | Claim extraction, local check, trusted source check, contradiction detector |
-| **Local Knowledge Base** | Source curation, wiki-style fact structure, embeddings, update scheduler |
-| **UI / Client** | Universal UI client (browser extension + dashboard), verdict display, side-by-side correction view |
+## 3. Then set up Ollama and Qwen3.5 4B
 
-*(Once the rest of the team confirms who's taking which piece, this table gets filled in with names.)*
+This is the part that needs its own attention — Ollama doesn't give you tool-calling for free, you write the loop yourself.
 
-## 4. Development Phases
+- [ ] Install Ollama and pull the model: `ollama pull qwen3.5:4b` (check the exact tag in the Ollama library — it may differ slightly)
+- [ ] Confirm it runs and responds: `ollama run qwen3.5:4b "hello"` from the terminal, no project code involved yet
+- [ ] Write `ollama_client.py` — a thin wrapper that POSTs to `http://localhost:11434/api/chat` with the messages array and the `tools` schema, and returns the parsed response (`logiclayer/verifier/ollama_client.py`)
+- [ ] Define the three tool schemas Ollama expects (OpenAI-style function JSON): `check_local_db`, `search_trusted_sources`, `report_verdict` — schema definitions live next to the client (`logiclayer/verifier/ollama_client.py`), the actual Python functions they map to live in `logiclayer/verifier/tools.py`
+- [ ] Write the system prompt template — read the response, identify claims, call `check_local_db` first, only call `report_verdict` once every claim has a verdict (`logiclayer/verifier/system_prompt.py`)
+- [ ] Test `ollama_client.py` standalone with a throwaway script and 10-15 hand-written claims before wiring it into anything else — confirm Qwen actually calls the tools instead of answering from its own knowledge
 
-### Phase 0 — Foundations 
-- Finalize tech stack from README proposal.
-- Set up repo structure as outlined in README.
-- Define the schema for a "fact entry" (claim, source, last-verified date, confidence/category, links to related facts).
-- Define the schema for a "verdict" (claim text, verdict type, evidence used, source, correction if applicable).
+## 4. Then build the agent connector
 
-### Phase 1 — Source Curation & Local Facts DB v0 
-- Manually sort and whitelist authentic sources (the step everyone agreed has to start manual).
-- Stand up the wiki-style local knowledge base structure (nodes + source links).
-- Seed it with an initial fact set in one or two test domains (pick something narrow first — don't try to cover everything at once).
-- Build the embeddings/index layer for semantic lookup.
+This is the "user prompt → API → generate text" half of the pipeline — the chatbot being checked, not the checker.
 
-### Phase 2 — Middleware Skeleton 
-- Build the basic routing: UI client → middleware → target AI agent → middleware → UI client, with no verification yet (plumbing first).
-- Build at least one agent connector end-to-end to prove the pipe works.
+- [ ] Write the `AgentConnector` base interface: `send(prompt) -> raw_response` (`logiclayer/connectors/base.py`)
+- [ ] Implement the connector for whichever chatbot/agent you're actually verifying (`logiclayer/connectors/openai_connector.py` or similarly named file per agent)
+- [ ] Add the API key to `.env`, document it in `.env.example`, load it via `logiclayer/config/settings.py`
 
-### Phase 3 — Claim Extraction 
-- Build the response-to-atomic-claims breakdown.
-- Test against real AI outputs to make sure claims are split correctly (the Python/Guido example is our baseline test case).
+P.S. - use nvdia nim api keys for testing they are free!!
 
-### Phase 4 — Verification Layers
-- Layer 1: Local Check against the Phase 1 knowledge base.
-- Layer 2: Trusted Source Check, including the `.gov` fallback search when keywords aren't found locally.
-- Layer 3: Contradiction Detector — evaluate small/lightweight model options for entailment-style classification.
-- Wire the four-verdict output (Verified / Wrong / Unverifiable / Hallucinated) end-to-end.
+## 5. Then build the orchestration loop
 
-### Phase 5 — Feedback Loop 
-- Build the correction-feedback path: when a hallucination is flagged, send a correction prompt back to the target AI agent and re-run the check on the new response.
-- Decide on a retry limit (how many correction passes before we just show the user "Unverifiable/Hallucinated" instead of looping forever).
+This is the file that actually ties everything above together — it's the most important file in the project.
 
-### Phase 6 — Universal UI Client 
-- Build the browser extension / dashboard.
-- Design the side-by-side incorrect/correct display for hallucination verdicts.
-- Design how "Unverifiable" is communicated so it reads as useful caution, not as a system failure.
+- [ ] Send the user's prompt through the connector from step 4 → get the raw response (`logiclayer/verifier/orchestrator.py`)
+- [ ] Call `ollama_client.py` with the raw response, the system prompt, and only the `check_local_db` + `report_verdict` tools enabled at first
+- [ ] When a `check_local_db` tool call comes back empty for a claim, **only then** add `search_trusted_sources` to the tools list for the next turn — this gating logic lives in `orchestrator.py`, not in the prompt, so Qwen can't skip the local check even if it wanted to
+- [ ] Execute whichever tool Qwen calls by dispatching to the real function in `logiclayer/verifier/tools.py`, feed the result back into the message history, and call Ollama again — loop until `report_verdict` has been called for every claim
+- [ ] Collect all `report_verdict` calls into one structured report object (still in `orchestrator.py`)
 
-### Phase 7 — Knowledge Base Maintenance Pipeline 
-- Build the scheduled refresh job for the local facts database.
-- Define how often sources get re-checked and how stale facts get flagged or removed.
+## 6. Then build the three-verdict reply
 
-### Phase 8 — Integration Testing 
-- End-to-end tests across multiple target AI agents.
-- Stress-test claim extraction on long, multi-claim responses.
-- Check latency of the full pipeline (prompt → multi-layer check → possible correction loop → final response).
+- [ ] `verified` → state the claim is correct, cite the source
+- [ ] `unverified` → say plainly nothing in the local DB or trusted sources could confirm or deny it
+- [ ] `wrong` → show the original statement and Qwen's corrected version side by side, cite the source
+- [ ] All three cases formatted in `logiclayer/reporting/formatter.py`, called from `orchestrator.py` right after step 5 finishes
 
-### Phase 9 — Pilot / Demo 
-- Run the full pipeline on a narrow, well-curated knowledge domain as a live demo.
-- Collect verdict accuracy data: how often Verified/Wrong/Unverifiable/Hallucinated calls match human judgment on a test set.
+## 7. Then build the CLI
 
-## 5. Milestones at a Glance
+- [ ] Set up the Typer app (`logiclayer/cli/main.py`)
+- [ ] `logiclayer query "<prompt>" --agent <name>` → calls connector (step 4) → orchestrator (step 5) → formatter (step 6) (`logiclayer/cli/commands/query.py`)
+- [ ] `logiclayer verify <file.json>` → skips the connector, feeds a saved transcript straight into the orchestrator (`logiclayer/cli/commands/verify.py`)
+- [ ] `logiclayer kb add-fact --file <fact.json>` / `logiclayer kb refresh` (`logiclayer/cli/commands/kb.py`)
+- [ ] `logiclayer scheduler start` (`logiclayer/cli/commands/scheduler.py`)
 
-| Milestone | Target |
-|---|---|
-| Repo + schema finalized | End of Week 1 |
-| Local facts DB v0 live (narrow domain) | End of Week 3 |
-| Middleware plumbing working (no verification) | End of Week 4 |
-| Claim extraction working | End of Week 5 |
-| All 3 verification layers + 4 verdicts working | End of Week 8 |
-| Feedback/correction loop working | End of Week 9 |
-| UI client showing real verdicts | End of Week 10 |
-| Full pipeline integration test pass | End of Week 12 |
-| Demo-ready pilot | Week 12+ |
+## 8. Then add the APScheduler refresh job
 
-*(Timeline is a working draft — adjust once the team confirms availability and splits up the roles in Section 3.)*
+- [ ] Write `refresh_knowledge_base()` — re-validates facts/sources, re-runs `search_trusted_sources` on anything stale (`logiclayer/scheduler/jobs.py`)
+- [ ] Wire it into APScheduler with a cron trigger (same file)
+- [ ] Hook it up to `logiclayer scheduler start` from step 7
 
-## 6. Open Risks & Questions
+## 9. Then add logging & metadata storage
 
-These came up implicitly in our discussion and need actual answers before/while we build:
+- [ ] Set up SQLite (or JSON log files) for: prompt, agent used, every tool call Qwen made, final verdicts (`logiclayer/logging/logger.py`)
+- [ ] Call the logger from `orchestrator.py` after every tool call and at the end of every run — this is what lets you confirm the "only search if needed" gate is actually holding in practice
 
-- **Latency:** multi-layer checking plus a possible correction loop back to the AI agent could make responses noticeably slower. Need to decide an acceptable max round-trip time.
-- **Retry limit:** how many correction passes do we allow before giving up and surfacing "Unverifiable/Hallucinated" instead of looping?
-- **Trusted source whitelist governance:** who decides what counts as "authentic," and how do we update that list over time without it becoming a bottleneck?
-- **Contradiction detector model choice:** build vs. use an existing small NLI model — needs a proper evaluation, not just a default pick.
-- **Coverage limits:** we've already agreed we can't claim zero hallucinations — need to decide how we communicate "Unverifiable" to users so it builds trust instead of reading as the system being broken.
-- **Knowledge base scope:** which domain(s) do we start with? Trying to cover "everything" on day one isn't realistic — need to pick a narrow vertical for the first working version.
-- **Update cadence for the local DB:** daily, weekly? Depends on the domain and how fast facts in it change.
+## 10. Then write tests
 
-## 7. Success Metrics (draft)
+- [ ] `tests/test_local_check.py` — exact + embeddings matching against seeded facts
+- [ ] `tests/test_trusted_sources.py` — confirm only whitelisted/`.gov` domains ever come back, even if you try to force something else
+- [ ] `tests/test_orchestrator.py` — confirm `search_trusted_sources` is never called when `check_local_db` already succeeded; run all three verdict paths end to end
+- [ ] `tests/test_cli.py` — smoke test `logiclayer query` against a mocked connector
 
-- % of claims correctly classified into the right verdict bucket, measured against a hand-labeled test set.
-- False "Wrong" rate (we flag something as wrong when it was actually correct) — this is the costliest type of error to get wrong, since it erodes user trust.
-- Latency of full pipeline (prompt-in to verified-response-out).
-- Local Check hit rate (% of claims resolved without needing the slower trusted-source layer).
+## 11. Then package & clean up the repo
 
-## 8. Immediate Next Steps
+- [ ] `pyproject.toml` with a CLI entry point so `pip install -e .` gives you the `logiclayer` command
+- [ ] `.gitignore` — env files, `__pycache__`, `local-knowledge-base/embeddings/*`, logs, `*.db`
+- [ ] `README.md`, `CONTRIBUTING.md`, `CODEOWNERS`
+- [ ] `.github/workflows/ci.yml` — lint + test on every push
 
-1. Confirm role assignments in Section 3 with the full team.
-2. Lock the tech stack choices in `README.md` (anything anyone wants to challenge before we start building).
-3. Pick the first narrow knowledge domain to seed the local facts database with.
-4. Start Phase 0 and Phase 1 in parallel.
+## 12. Finally, deploy (optional) 
+
+- [ ] `Dockerfile` that installs the package, runs Ollama (or points at an existing Ollama instance), and runs the CLI/scheduler
+- [ ] Decide if this stays a local dev tool or runs unattended on a server — if it's a server, Ollama needs to be running there too, not just on your laptop
