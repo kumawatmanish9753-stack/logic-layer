@@ -105,7 +105,7 @@ If you've only ever had "one Python" installed on your computer and run scripts 
 
 **What is `pyenv`, and why do we use it?**
 
-Different projects often need different Python *versions*. Your computer might come with Python 3.9, but this project needs **Python 3.12.11** specifically. `pyenv` lets you install multiple Python versions side by side and pick exactly which one a given project uses, without touching or breaking the system Python your OS relies on.
+Different projects often need different Python *versions*. Your computer might come with Python 3.9, but this project needs **Python 3.12.10** specifically. `pyenv` lets you install multiple Python versions side by side and pick exactly which one a given project uses, without touching or breaking the system Python your OS relies on.
 
 **What is a virtual environment (`venv`), and why do we use it?**
 
@@ -128,24 +128,24 @@ Put together: **`pyenv` picks the Python version, `venv` isolates the packages.*
    pyenv --version
    ```
 
-2. **Install Python 3.12.11 via `pyenv`** (one-time, per computer):
+2. **Install Python 3.12.10 via `pyenv`** (one-time, per computer):
    ```bash
-   pyenv install 3.12.11
+   pyenv install 3.12.10
    ```
    This downloads and builds that exact Python version — it does **not** replace your system Python.
 
 3. **Pin this project to that version** (run from inside the `logic-layer` folder):
    ```bash
    cd logic-layer
-   pyenv local 3.12.11
+   pyenv local 3.12.10
    ```
-   This creates a `.python-version` file in the repo. From now on, any time your terminal is inside this folder, `python` automatically means Python 3.12.11 — no need to remember to switch it manually.
+   This creates a `.python-version` file in the repo. From now on, any time your terminal is inside this folder, `python` automatically means Python 3.12.10 — no need to remember to switch it manually.
 
 4. **Create the project's virtual environment** (one-time, per clone of the repo):
    ```bash
    python -m venv venv
    ```
-   This creates a `venv/` folder containing an isolated copy of Python 3.12.11 and its own empty package list. It's already listed in `.gitignore`, so it never gets committed.
+   This creates a `venv/` folder containing an isolated copy of Python 3.12.10 and its own empty package list. It's already listed in `.gitignore`, so it never gets committed.
 
 5. **Activate the virtual environment** (every time you open a new terminal to work on this project):
    ```bash
@@ -167,7 +167,7 @@ Put together: **`pyenv` picks the Python version, `venv` isolates the packages.*
 **Common beginner mistakes to avoid:**
 
 - Forgetting to `activate` the `venv` before running `pip install` — you'll end up installing packages globally instead, which is exactly what `venv` exists to prevent.
-- Running `pyenv local 3.12.11` somewhere outside the `logic-layer` folder — it only pins the version for the folder (and subfolders) you ran it in.
+- Running `pyenv local 3.12.10` somewhere outside the `logic-layer` folder — it only pins the version for the folder (and subfolders) you ran it in.
 - Committing the `venv/` folder to Git — don't; it's already gitignored, and it shouldn't ever be tracked.
 
 ---
@@ -176,7 +176,7 @@ Put together: **`pyenv` picks the Python version, `venv` isolates the packages.*
 
 ### 2.1 Prerequisites
 
-- **Python 3.12.11**, managed via `pyenv` (see [Section 1.5](#15-new-to-pyenv-and-virtual-environments-start-here) if this is new to you) — used for the FastAPI middleware, claim extraction, verification layers
+- **Python 3.12.10**, managed via `pyenv` (see [Section 1.5](#15-new-to-pyenv-and-virtual-environments-start-here) if this is new to you) — used for the FastAPI middleware, claim extraction, verification layers
 - **Node.js** ≥ 18 LTS (for the UI client — browser extension + web dashboard)
 - **PostgreSQL** ≥ 14 (for verdict history, metadata, logs)
 - **Docker** + Docker Compose (for the local dev environment)
@@ -197,8 +197,8 @@ cd logic-layer
 cp .env.example .env
 
 # Pin the Python version with pyenv (writes .python-version)
-pyenv install 3.12.11   # skip if you already have it installed
-pyenv local 3.12.11
+pyenv install 3.12.10   # skip if you already have it installed
+pyenv local 3.12.10
 
 # Create and activate a virtual environment for the middleware
 python -m venv venv
@@ -316,7 +316,7 @@ Allowed types: `feat`, `fix`, `chore`, `docs`, `test`, `refactor`, `perf`, `ci`.
 - **Docstrings** (Google style) on every module and public function.
 - No print statements in production code — use the `logging` module.
 - Tests with `pytest`. Aim for ≥ 80% line coverage on touched modules.
-- All of the above assumes you're working inside the project's `venv` on Python 3.12.11 (pinned via `pyenv`) — see [Section 1.5](#15-new-to-pyenv-and-virtual-environments-start-here).
+- All of the above assumes you're working inside the project's `venv` on Python 3.12.10 (pinned via `pyenv`) — see [Section 1.5](#15-new-to-pyenv-and-virtual-environments-start-here).
 
 ### 6.2 JavaScript / TypeScript (UI client)
 
